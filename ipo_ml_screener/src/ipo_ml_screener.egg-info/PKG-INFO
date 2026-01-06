@@ -1,0 +1,7 @@
+Metadata-Version: 2.4
+Name: ipo-ml-screener
+Version: 0.1.0
+Summary: Recent IPO screener with hard-gate scoring + Streamlit dashboard
+Requires-Python: >=3.10
+License-File: LICENSE
+Dynamic: license-file

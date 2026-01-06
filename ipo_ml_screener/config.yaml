@@ -1,0 +1,40 @@
+ipo:
+  source: stockanalysis
+  url: "https://stockanalysis.com/ipos/"
+  days_since_ipo: 365
+  max_candidates: 150
+
+momentum:
+  # “peak-left-side” heuristic: in uptrend, near highs, not too extended.
+  min_history_days: 60
+  sma_fast: 20
+  sma_slow: 50
+  sma_trend_days: 10
+  min_20d_return: 0.05        # +5%
+  max_drawdown_from_60d_high: 0.08   # <= 8% below 60d high
+  max_distance_above_sma_fast: 0.15  # price not > 15% above SMA20
+
+hard_gates:
+  thresholds:
+    min_price: 5
+    min_market_cap_usd: 300000000
+    min_avg_dollar_volume_20d: 3000000   # $3M/day
+    min_shares_outstanding: 15000000     # proxy for float
+    min_gross_margin: 0.30               # when available
+    min_yoy_revenue_growth: 0.10         # when available
+    max_sbc_to_revenue: 0.20             # when available
+    min_cash_runway_months: 12           # when available (cash / burn)
+  weights:
+    price: 1
+    market_cap: 2
+    liquidity: 3
+    shares_outstanding: 1
+    momentum: 3
+    gross_margin: 2
+    revenue_growth: 2
+    sbc: 1
+    cash_runway: 2
+
+output:
+  processed_path: "data/processed/scores.parquet"
+  raw_ipo_path: "data/raw/ipos.csv"
