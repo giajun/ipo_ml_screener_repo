@@ -18,18 +18,21 @@ scores_path = cfg["output"]["processed_path"]
 df = load_scores(scores_path)
 
 if df.empty:
-    st.warning("No data found. Run: `python -m ipo_ml_screener.cli.refresh` first.")
+    st.warning("No data found. Run: `python -m ipo_ml_screener.cli refresh` first.")
     st.stop()
 
 # Sidebar filters
 st.sidebar.header("Filters")
-min_score = st.sidebar.slider("Min total score", 0.0, 100.0, 70.0, 1.0)
+min_score = st.sidebar.slider("Min total score", 0.0, 100.0, 50.0, 1.0)
 pass_only = st.sidebar.checkbox("Hard gates: PASS only", value=True)
 min_days_since_ipo = st.sidebar.slider("Min days since IPO", 0, 365, 30, 5)
 max_days_since_ipo = st.sidebar.slider("Max days since IPO", 0, 365, 365, 5)
 
-cols = ["ticker", "name", "ipo_date", "days_since_ipo", "total_score", "hard_pass",
-        "momentum_pass", "avg_dollar_vol_20d", "market_cap", "price", "shares_outstanding"]
+cols = [
+    "ticker", "name", "ipo_date", "days_since_ipo", "total_score", "hard_pass",
+    "momentum_pass", "avg_dollar_vol_20d", "market_cap", "price", "shares_outstanding",
+    "latest_filing_date", "latest_10q_date", "latest_10k_date",
+]
 show_cols = [c for c in cols if c in df.columns]
 
 df["ipo_date"] = pd.to_datetime(df["ipo_date"], errors="coerce")
@@ -40,6 +43,10 @@ f = f[(f["total_score"] >= min_score)]
 f = f[(f["days_since_ipo"] >= min_days_since_ipo) & (f["days_since_ipo"] <= max_days_since_ipo)]
 if pass_only and "hard_pass" in f.columns:
     f = f[f["hard_pass"] == True]
+
+if f.empty:
+    st.info("No tickers match the current filters. Try lowering the minimum score or unchecking PASS-only.")
+    st.stop()
 
 st.subheader("Results")
 st.dataframe(
@@ -60,6 +67,12 @@ c1.metric("Total score", f"{row.get('total_score', float('nan')):.1f}")
 c2.metric("Hard pass", "PASS" if row.get("hard_pass") else "FAIL")
 c3.metric("Momentum pass", "PASS" if row.get("momentum_pass") else "FAIL")
 c4.metric("Days since IPO", int(row.get("days_since_ipo", 0) or 0))
+
+st.caption(
+    f"Latest filing: {row.get('latest_filing_date') or 'n/a'} | "
+    f"Latest 10-Q: {row.get('latest_10q_date') or 'n/a'} | "
+    f"Latest 10-K: {row.get('latest_10k_date') or 'n/a'}"
+)
 
 with st.expander("Raw metrics (selected)"):
     st.json({k: row.get(k) for k in sorted(row.keys())})

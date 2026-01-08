@@ -4,22 +4,59 @@ from functools import lru_cache
 from typing import Any
 import os
 import re
+import time
 import pandas as pd
 import requests
 
 
 SEC_TICKER_CIK_URL = "https://www.sec.gov/files/company_tickers.json"
 SEC_COMPANYFACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik10}.json"
+SEC_SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik10}.json"
 
 # You MUST set a descriptive User-Agent per SEC guidance.
 DEFAULT_UA = os.environ.get("SEC_USER_AGENT", "IPO-ML-Screener your.email@example.com")
 
 
+class _RateLimiter:
+    """Very small per-process rate limiter for SEC endpoints.
+
+    SEC requests that automated requests remain under a reasonable rate; this
+    limiter defaults to ~8 requests/sec.
+    """
+
+    def __init__(self, max_rps: float = 8.0):
+        self.min_interval = 1.0 / max_rps if max_rps > 0 else 0.0
+        self._last = 0.0
+
+    def wait(self) -> None:
+        if self.min_interval <= 0:
+            return
+        now = time.time()
+        dt = now - self._last
+        if dt < self.min_interval:
+            time.sleep(self.min_interval - dt)
+        self._last = time.time()
+
+
+_rl = _RateLimiter()
+
+
+def _sec_get_json(url: str) -> dict | None:
+    _rl.wait()
+    r = requests.get(url, timeout=30, headers={"User-Agent": DEFAULT_UA})
+    if r.status_code != 200:
+        return None
+    try:
+        return r.json()
+    except Exception:
+        return None
+
+
 @lru_cache(maxsize=1)
 def load_ticker_cik_map() -> dict:
-    r = requests.get(SEC_TICKER_CIK_URL, timeout=30, headers={"User-Agent": DEFAULT_UA})
-    r.raise_for_status()
-    data = r.json()
+    data = _sec_get_json(SEC_TICKER_CIK_URL)
+    if not data:
+        return {}
     # Format is dict keyed by integer strings: {"0": {"cik_str":..., "ticker":..., "title":...}, ...}
     out = {}
     for _, v in data.items():
@@ -44,10 +81,47 @@ def fetch_company_facts(ticker: str) -> dict | None:
     if cik is None:
         return None
     url = SEC_COMPANYFACTS_URL.format(cik10=_cik10(cik))
-    r = requests.get(url, timeout=30, headers={"User-Agent": DEFAULT_UA})
-    if r.status_code != 200:
+    return _sec_get_json(url)
+
+
+def fetch_company_submissions(ticker: str) -> dict | None:
+    """Fetch SEC submissions JSON (filings index) for a ticker."""
+    cik = ticker_to_cik(ticker)
+    if cik is None:
         return None
-    return r.json()
+    url = SEC_SUBMISSIONS_URL.format(cik10=_cik10(cik))
+    return _sec_get_json(url)
+
+
+def extract_filing_meta(ticker: str) -> dict:
+    """Return lightweight filing metadata useful for dashboards and sanity checks."""
+    sub = fetch_company_submissions(ticker)
+    if not sub:
+        return {}
+
+    recent = (sub.get("filings", {}) or {}).get("recent", {}) or {}
+    forms = recent.get("form", []) or []
+    filing_dates = recent.get("filingDate", []) or []
+
+    def _latest_form_date(target_forms: set[str]) -> str | None:
+        best = None
+        for f, d in zip(forms, filing_dates):
+            if f in target_forms and d:
+                if best is None or str(d) > str(best):
+                    best = d
+        return str(best) if best is not None else None
+
+    latest_any = str(filing_dates[0]) if filing_dates else None
+    latest_10q = _latest_form_date({"10-Q"})
+    latest_10k = _latest_form_date({"10-K"})
+
+    return {
+        "latest_filing_date": latest_any,
+        "latest_10q_date": latest_10q,
+        "latest_10k_date": latest_10k,
+        "has_10q": latest_10q is not None,
+        "has_10k": latest_10k is not None,
+    }
 
 
 def extract_latest_usd_series(facts: dict, taxonomy: str, tag: str) -> pd.DataFrame:

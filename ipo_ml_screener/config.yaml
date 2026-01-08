@@ -3,6 +3,9 @@ ipo:
   url: "https://stockanalysis.com/ipos/"
   days_since_ipo: 365
   max_candidates: 150
+  # Heuristic filter to remove many SPAC units/warrants tickers from the candidate pool.
+  # (You can tune/disable depending on your workflow.)
+  exclude_suffixes: ["U", "W", "WS"]
 
 momentum:
   # “peak-left-side” heuristic: in uptrend, near highs, not too extended.
